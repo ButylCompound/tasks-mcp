@@ -1,0 +1,29 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "todo_mcp_master_key",
+      "description": "Encryption passphrase for stored Microsoft To Do refresh tokens",
+      "password": true
+    },
+    {
+      "type": "promptString",
+      "id": "todo_mcp_default_account",
+      "description": "Default Microsoft To Do account alias to use when a tool call does not specify one"
+    }
+  ],
+  "servers": {
+    "todo-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["index.js"],
+      "env": {
+        "TODO_MCP_MASTER_KEY": "${input:todo_mcp_master_key}",
+        "TODO_MCP_DEFAULT_ACCOUNT": "${input:todo_mcp_default_account}"
+      },
+      "dev": {
+        "watch": ["index.js", "auth.js"]
+      }
+    }
+  }
+}

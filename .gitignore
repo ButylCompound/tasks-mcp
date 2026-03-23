@@ -1,0 +1,7 @@
+node_modules/
+.env
+*.log
+
+# Auth config is stored outside the repo in the user's home directory (~/.todo-mcp-config.json)
+# Never commit it — it contains encrypted refresh tokens.
+.todo-mcp-config.json
