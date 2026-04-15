@@ -1,12 +1,15 @@
 # todo-mcp
 
-An MCP (Model Context Protocol) server that gives AI assistants access to **Microsoft To Do** via the Microsoft Graph API. Supports multiple accounts (personal and work), encrypted token storage, and all common task operations.
+An MCP (Model Context Protocol) server that gives AI assistants access to **Microsoft To Do** and **Microsoft Planner** via the Microsoft Graph API. Supports multiple accounts (personal and work), encrypted token storage, and common planning/task operations.
 
 ## Features
 
 - List task lists and tasks across any number of accounts
 - Create, update, complete, and delete tasks
 - Get all pending tasks across every list in one call
+- List Planner plans, buckets, and tasks
+- Create, update, complete, and delete Planner tasks
+- Manage Planner task details and checklist items
 - Multi-account support (e.g. separate `work` and `personal` aliases)
 - Refresh tokens stored encrypted with AES-256-GCM on disk
 - Non-blocking device code authentication flow (URL returned immediately)
@@ -14,7 +17,7 @@ An MCP (Model Context Protocol) server that gives AI assistants access to **Micr
 ## Prerequisites
 
 - **Node.js** 18 or later
-- An **Azure app registration** with the Microsoft Graph `Tasks.Read`, `Tasks.ReadWrite`, and `offline_access` delegated permissions (see below)
+- An **Azure app registration** with the Microsoft Graph `Tasks.Read`, `Tasks.ReadWrite`, `Group.Read.All`, and `offline_access` delegated permissions (see below)
 
 ## 1. Create an Azure App Registration
 
@@ -24,8 +27,8 @@ An MCP (Model Context Protocol) server that gives AI assistants access to **Micr
 4. No redirect URI needed — click **Register**
 5. Copy the **Application (client) ID** — you'll need it below
 6. Go to **API permissions** → **Add a permission** → **Microsoft Graph** → **Delegated**
-   - Add: `Tasks.Read`, `Tasks.ReadWrite`, `offline_access`
-   - Click **Grant admin consent** (or users will be prompted on first sign-in)
+  - Add: `Tasks.Read`, `Tasks.ReadWrite`, `Group.Read.All`, `offline_access`
+  - Click **Grant admin consent** (or users will be prompted on first sign-in)
 7. Go to **Authentication** → **Advanced settings** → enable **"Allow public client flows"** (required for device code)
 8. Go to **Manifest** → set `"requestedAccessTokenVersion": 2` in the `api` section → **Save**
 
@@ -86,6 +89,8 @@ Go to the URL shown, enter the code, and sign in. The token is saved automatical
 For **personal Microsoft accounts** (Outlook, Hotmail, Live), always pass `tenant_id="consumers"`.  
 For **work/school accounts**, pass your organization's tenant ID (a UUID), or `"organizations"` to accept any.
 
+> Microsoft Planner is available for work/school Microsoft 365 accounts. Personal Microsoft accounts do not support Planner APIs.
+
 ## Environment Variables
 
 | Variable | Required | Description |
@@ -95,6 +100,7 @@ For **work/school accounts**, pass your organization's tenant ID (a UUID), or `"
 | `TODO_MCP_TENANT_ID` | No | Default tenant ID (defaults to `"common"`) |
 | `TODO_MCP_DEFAULT_ACCOUNT` | No | Default account alias (defaults to `"default"`) |
 | `TODO_MCP_CONFIG_PATH` | No | Override path for the config file (defaults to `~/.todo-mcp-config.json`) |
+| `TODO_MCP_SCOPE` | No | OAuth scope override (defaults to `Tasks.Read Tasks.ReadWrite Group.Read.All offline_access`) |
 
 ## Available Tools
 
@@ -111,6 +117,19 @@ For **work/school accounts**, pass your organization's tenant ID (a UUID), or `"
 | `update_task` | Update a task's title, due date, importance, or body |
 | `complete_task` | Mark a task as completed |
 | `delete_task` | Delete a task |
+| `list_planner_plans` | List Planner plans available to the user or a specific group |
+| `list_planner_buckets` | List buckets in a Planner plan |
+| `get_planner_tasks` | Get tasks in a Planner plan (optionally by bucket/status) |
+| `get_all_pending_planner_tasks` | Get all not-completed Planner tasks assigned to the user |
+| `create_planner_task` | Create a Planner task with optional assignees/categories |
+| `update_planner_task` | Update Planner task fields, assignees, categories, progress |
+| `complete_planner_task` | Mark a Planner task as completed |
+| `delete_planner_task` | Delete a Planner task |
+| `get_planner_task_details` | Get Planner task details (description, checklist, references) |
+| `update_planner_task_details` | Update Planner task details |
+| `add_planner_checklist_item` | Add a checklist item to a Planner task |
+| `update_planner_checklist_item` | Update a Planner checklist item |
+| `delete_planner_checklist_item` | Delete a Planner checklist item |
 
 All data tools accept an optional `account` parameter to target a specific alias. If omitted, the default account is used.
 
