@@ -310,6 +310,43 @@ function formatPlannerBucket(bucket) {
   };
 }
 
+function comparePlannerOrderHint(leftOrderHint, rightOrderHint) {
+  const leftHasOrderHint = typeof leftOrderHint === "string" && leftOrderHint.length > 0;
+  const rightHasOrderHint = typeof rightOrderHint === "string" && rightOrderHint.length > 0;
+
+  if (leftHasOrderHint && rightHasOrderHint) {
+    if (leftOrderHint > rightOrderHint) return -1;
+    if (leftOrderHint < rightOrderHint) return 1;
+    return 0;
+  }
+
+  if (leftHasOrderHint) return -1;
+  if (rightHasOrderHint) return 1;
+  return 0;
+}
+
+function sortPlannerBucketsLeftToRight(buckets) {
+  return [...buckets].sort((left, right) => {
+    const orderHintComparison = comparePlannerOrderHint(left.orderHint, right.orderHint);
+    if (orderHintComparison !== 0) return orderHintComparison;
+
+    const nameComparison = left.name.localeCompare(right.name);
+    if (nameComparison !== 0) return nameComparison;
+
+    return left.id.localeCompare(right.id);
+  });
+}
+
+async function resolvePlannerBucketId(planId, requestedBucketId, account) {
+  if (requestedBucketId !== undefined) return requestedBucketId;
+
+  const buckets = await graphGetAllPages(buildPlannerPlanBucketsPath(planId), account);
+  const orderedBuckets = sortPlannerBucketsLeftToRight(buckets.map(formatPlannerBucket));
+  const firstBucket = orderedBuckets[0];
+
+  return firstBucket?.id;
+}
+
 function formatPlannerTask(task) {
   return {
     id: task.id,
@@ -655,9 +692,7 @@ server.tool("list_planner_buckets", "List buckets in a Microsoft Planner plan", 
   plan_id: z.string(),
 }, async ({ account, plan_id }) => {
   const buckets = await graphGetAllPages(buildPlannerPlanBucketsPath(plan_id), account);
-  const sortedBuckets = buckets
-    .map(formatPlannerBucket)
-    .sort((left, right) => left.name.localeCompare(right.name));
+  const sortedBuckets = sortPlannerBucketsLeftToRight(buckets.map(formatPlannerBucket));
   return { content: [{ type: "text", text: JSON.stringify(sortedBuckets, null, 2) }] };
 });
 
@@ -731,7 +766,7 @@ server.tool("create_planner_task", "Create a Microsoft Planner task", {
   ...optionalAccountArg,
   plan_id: z.string(),
   title: z.string(),
-  bucket_id: z.string().optional(),
+  bucket_id: z.string().optional().describe("Optional bucket ID. If omitted, task is placed in the leftmost bucket in the plan when one exists; otherwise created without a bucket."),
   start_date_time: z.string().optional().describe("ISO 8601 datetime, e.g. 2026-04-16T09:00:00Z"),
   due_date_time: z.string().optional().describe("ISO 8601 datetime, e.g. 2026-04-20T17:00:00Z"),
   priority: z.number().int().min(0).max(10).optional().describe("Planner priority 0-10, where lower is higher priority"),
@@ -739,8 +774,9 @@ server.tool("create_planner_task", "Create a Microsoft Planner task", {
   categories: zStringArray.optional().describe("Planner category keys, e.g. [\"category1\", \"category3\"]"),
 }, async ({ account, plan_id, title, bucket_id, start_date_time, due_date_time, priority, assign_to_user_ids, categories }) => {
   const payload = { planId: plan_id, title };
+  const resolvedBucketId = await resolvePlannerBucketId(plan_id, bucket_id, account);
+  if (resolvedBucketId !== undefined) payload.bucketId = resolvedBucketId;
 
-  if (bucket_id !== undefined) payload.bucketId = bucket_id;
   if (start_date_time !== undefined) payload.startDateTime = start_date_time;
   if (due_date_time !== undefined) payload.dueDateTime = due_date_time;
   if (priority !== undefined) payload.priority = priority;
