@@ -111,7 +111,7 @@ For **work/school accounts**, pass your organization's tenant ID (a UUID), or `"
 | `set_default_account` | Change which account is used when none is specified |
 | `delete_account` | Remove a stored account |
 | `list_todo_lists` | List all task lists for an account |
-| `get_tasks` | Get tasks from a specific list (filterable by status) |
+| `get_tasks` | Get tasks from a specific list (defaults to pending; completed omitted unless explicitly requested) |
 | `get_all_pending_tasks` | Get all non-completed tasks across every list |
 | `create_task` | Create a task with optional due date, importance, and body |
 | `update_task` | Update a task's title, due date, importance, or body |
@@ -121,7 +121,7 @@ For **work/school accounts**, pass your organization's tenant ID (a UUID), or `"
 | `list_planner_buckets` | List buckets in a Planner plan |
 | `list_employee_ids` | List employee IDs with names for assignment lookups |
 | `get_user_planner_tasks` | Get pending tasks assigned to a specific user from plans visible to the signed-in user (optionally filtered by plan) |
-| `get_planner_tasks` | Get tasks in a Planner plan (optionally by bucket/status) |
+| `get_planner_tasks` | Get tasks in a Planner plan (defaults to incomplete; completed omitted unless explicitly requested) |
 | `get_all_pending_planner_tasks` | Get all not-completed Planner tasks assigned to the user |
 | `create_planner_task` | Create a Planner task with optional assignees/categories |
 | `update_planner_task` | Update Planner task fields, assignees, categories, progress |

@@ -535,14 +535,16 @@ server.tool("list_todo_lists", "List all Microsoft To Do task lists", {
 
 // ── Tasks ────────────────────────────────────────────────────────────────────
 
-server.tool("get_tasks", "Get tasks from a specific To Do list", {
+server.tool("get_tasks", "Get tasks from a specific To Do list. By default, completed tasks are omitted unless status is set to 'all' or 'completed'.", {
   ...optionalAccountArg,
   list_id: z.string(),
-  status:  z.enum(["all", "notStarted", "inProgress", "waitingOnOthers", "deferred", "completed"]).optional().default("all"),
+  status:  z.enum(["all", "pending", "notStarted", "inProgress", "waitingOnOthers", "deferred", "completed"]).optional().default("pending")
+    .describe("Defaults to 'pending' (completed tasks omitted). Use 'all' or 'completed' to include completed tasks."),
   top:     z.number().optional().default(50),
 }, async ({ account, list_id, status, top }) => {
   const query = new URLSearchParams({ "$top": String(top) });
-  if (status !== "all") query.set("$filter", `status eq '${status}'`);
+  if (status === "pending") query.set("$filter", `status ne 'completed'`);
+  else if (status !== "all") query.set("$filter", `status eq '${status}'`);
   const resp = await graphGet(`${buildTasksPath(list_id)}?${query}`, account);
   return { content: [{ type: "text", text: JSON.stringify((resp.value || []).map(formatTask), null, 2) }] };
 });
@@ -626,7 +628,7 @@ server.tool("complete_task", "Mark a task as completed", {
     status: "completed",
     completedDateTime: { dateTime: new Date().toISOString(), timeZone: "UTC" },
   }, account);
-  return { content: [{ type: "text", text: `Completed: "${resp.title}"` }] };
+  return { content: [{ type: "text", text: `Completed: "${resp.title}". Note: completed tasks are omitted by default in get_tasks unless status is set to 'all' or 'completed'.` }] };
 });
 
 server.tool("delete_task", "Delete a task from a To Do list", {
@@ -787,11 +789,12 @@ server.tool("get_user_planner_tasks", "Get pending Planner tasks assigned to a s
   return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
 });
 
-server.tool("get_planner_tasks", "Get tasks from a Microsoft Planner plan", {
+server.tool("get_planner_tasks", "Get tasks from a Microsoft Planner plan. By default, completed tasks are omitted unless status is set to 'all' or 'completed'.", {
   ...optionalAccountArg,
   plan_id: z.string(),
   bucket_id: z.string().optional().describe("Optional bucket ID to limit tasks to one bucket."),
-  status: z.enum(["all", "incomplete", "completed"]).optional().default("all"),
+  status: z.enum(["all", "incomplete", "completed"]).optional().default("incomplete")
+    .describe("Defaults to 'incomplete' (completed tasks omitted). Use 'all' or 'completed' to include completed tasks."),
   top: z.number().int().positive().optional().default(100),
 }, async ({ account, plan_id, bucket_id, status, top }) => {
   const query = new URLSearchParams({ "$top": String(top) });
@@ -934,7 +937,7 @@ server.tool("complete_planner_task", "Mark a Microsoft Planner task as completed
   task_id: z.string(),
 }, async ({ account, task_id }) => {
   const updatedTask = await patchPlannerTask(task_id, { percentComplete: 100 }, account);
-  return { content: [{ type: "text", text: `Completed: "${updatedTask.title}"` }] };
+  return { content: [{ type: "text", text: `Completed: "${updatedTask.title}". Note: completed tasks are omitted by default in get_planner_tasks unless status is set to 'all' or 'completed'.` }] };
 });
 
 server.tool("delete_planner_task", "Delete a Microsoft Planner task", {
