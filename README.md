@@ -17,7 +17,7 @@ An MCP (Model Context Protocol) server that gives AI assistants access to **Micr
 ## Prerequisites
 
 - **Node.js** 18 or later
-- An **Azure app registration** with the Microsoft Graph `Tasks.Read`, `Tasks.ReadWrite`, `Group.Read.All`, and `offline_access` delegated permissions (see below)
+- An **Azure app registration** with the Microsoft Graph `Tasks.Read`, `Tasks.ReadWrite`, `Group.Read.All`, `User.ReadBasic.All`, and `offline_access` delegated permissions (see below)
 
 ## 1. Create an Azure App Registration
 
@@ -27,7 +27,7 @@ An MCP (Model Context Protocol) server that gives AI assistants access to **Micr
 4. No redirect URI needed — click **Register**
 5. Copy the **Application (client) ID** — you'll need it below
 6. Go to **API permissions** → **Add a permission** → **Microsoft Graph** → **Delegated**
-  - Add: `Tasks.Read`, `Tasks.ReadWrite`, `Group.Read.All`, `offline_access`
+  - Add: `Tasks.Read`, `Tasks.ReadWrite`, `Group.Read.All`, `User.ReadBasic.All`, `offline_access`
   - Click **Grant admin consent** (or users will be prompted on first sign-in)
 7. Go to **Authentication** → **Advanced settings** → enable **"Allow public client flows"** (required for device code)
 8. Go to **Manifest** → set `"requestedAccessTokenVersion": 2` in the `api` section → **Save**
@@ -100,7 +100,7 @@ For **work/school accounts**, pass your organization's tenant ID (a UUID), or `"
 | `TODO_MCP_TENANT_ID` | No | Default tenant ID (defaults to `"common"`) |
 | `TODO_MCP_DEFAULT_ACCOUNT` | No | Default account alias (defaults to `"default"`) |
 | `TODO_MCP_CONFIG_PATH` | No | Override path for the config file (defaults to `~/.todo-mcp-config.json`) |
-| `TODO_MCP_SCOPE` | No | OAuth scope override (defaults to `Tasks.Read Tasks.ReadWrite Group.Read.All offline_access`) |
+| `TODO_MCP_SCOPE` | No | OAuth scope override (defaults to `Tasks.Read Tasks.ReadWrite Group.Read.All User.ReadBasic.All offline_access`) |
 
 ## Available Tools
 
@@ -119,6 +119,8 @@ For **work/school accounts**, pass your organization's tenant ID (a UUID), or `"
 | `delete_task` | Delete a task |
 | `list_planner_plans` | List Planner plans available to the user or a specific group |
 | `list_planner_buckets` | List buckets in a Planner plan |
+| `list_employee_ids` | List employee IDs with names for assignment lookups |
+| `get_user_planner_tasks` | Get pending tasks assigned to a specific user from plans visible to the signed-in user (optionally filtered by plan) |
 | `get_planner_tasks` | Get tasks in a Planner plan (optionally by bucket/status) |
 | `get_all_pending_planner_tasks` | Get all not-completed Planner tasks assigned to the user |
 | `create_planner_task` | Create a Planner task with optional assignees/categories |

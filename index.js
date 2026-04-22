@@ -368,6 +368,20 @@ function formatPlannerTask(task) {
   };
 }
 
+function formatDirectoryUser(user) {
+  const displayName = typeof user.displayName === "string" && user.displayName.trim()
+    ? user.displayName.trim()
+    : [user.givenName, user.surname]
+      .filter((part) => typeof part === "string" && part.trim())
+      .join(" ")
+      .trim();
+
+  return {
+    id: user.id,
+    name: displayName || user.mail || user.userPrincipalName || user.id,
+  };
+}
+
 function decodeReferenceKey(encodedKey) {
   try {
     return decodeURIComponent(encodedKey);
@@ -694,6 +708,83 @@ server.tool("list_planner_buckets", "List buckets in a Microsoft Planner plan", 
   const buckets = await graphGetAllPages(buildPlannerPlanBucketsPath(plan_id), account);
   const sortedBuckets = sortPlannerBucketsLeftToRight(buckets.map(formatPlannerBucket));
   return { content: [{ type: "text", text: JSON.stringify(sortedBuckets, null, 2) }] };
+});
+
+server.tool("list_employee_ids", "List employee IDs with names for Planner assignment and lookup", {
+  ...optionalAccountArg,
+  search: z.string().optional().describe("Optional text filter applied to display name, given name, surname, mail, and UPN."),
+  max_results: z.number().int().positive().max(5000).optional().default(500),
+}, async ({ account, search, max_results }) => {
+  const users = await graphGetAllPages("/users?$select=id,displayName,givenName,surname,mail,userPrincipalName&$top=999", account);
+  const normalizedSearch = typeof search === "string" ? search.trim().toLocaleLowerCase() : "";
+
+  const filteredUsers = users
+    .filter((user) => {
+      if (!normalizedSearch) return true;
+      const lookupValues = [user.displayName, user.givenName, user.surname, user.mail, user.userPrincipalName]
+        .filter((value) => typeof value === "string" && value.trim());
+      return lookupValues.some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
+    })
+    .map(formatDirectoryUser)
+    .sort((left, right) => {
+      const nameComparison = left.name.localeCompare(right.name);
+      if (nameComparison !== 0) return nameComparison;
+      return left.id.localeCompare(right.id);
+    })
+    .slice(0, max_results);
+
+  return { content: [{ type: "text", text: JSON.stringify(filteredUsers, null, 2) }] };
+});
+
+server.tool("get_user_planner_tasks", "Get pending Planner tasks assigned to a specific user from plans visible to the signed-in user", {
+  ...optionalAccountArg,
+  user_id: z.string().describe("Microsoft Entra user ID."),
+  plan_id: z.string().optional().describe("Optional Planner plan ID. If the signed-in user cannot access this plan, no tasks are returned."),
+  max_results: z.number().int().positive().max(5000).optional().default(500),
+}, async ({ account, user_id, plan_id, max_results }) => {
+  const accessiblePlans = await graphGetAllPages(buildPlannerPlansPath(), account);
+  const selectedPlans = plan_id
+    ? accessiblePlans.filter((plan) => plan.id === plan_id)
+    : accessiblePlans;
+
+  if (selectedPlans.length === 0) {
+    return { content: [{ type: "text", text: JSON.stringify([], null, 2) }] };
+  }
+
+  const tasksByPlan = await Promise.all(selectedPlans.map(async (plan) => {
+    try {
+      return await graphGetAllPages(`${buildPlannerPlanTasksPath(plan.id)}?$top=100`, account);
+    } catch {
+      return [];
+    }
+  }));
+
+  const normalizedUserId = user_id.trim().toLocaleLowerCase();
+  const filtered = tasksByPlan
+    .flat()
+    .filter((task) => Number(task.percentComplete || 0) < 100)
+    .filter((task) => Object.keys(task.assignments || {}).some((assigneeId) => assigneeId.toLocaleLowerCase() === normalizedUserId));
+
+  const planTitles = new Map(selectedPlans.map((plan) => [plan.id, plan.title || null]));
+
+  const result = filtered
+    .map((task) => ({
+      ...formatPlannerTask(task),
+      planTitle: task.planId ? (planTitles.get(task.planId) ?? null) : null,
+    }))
+    .sort((left, right) => {
+      const leftPriority = Number.isFinite(left.priority) ? left.priority : 99;
+      const rightPriority = Number.isFinite(right.priority) ? right.priority : 99;
+      if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+
+      if (left.dueDateTime && right.dueDateTime) return left.dueDateTime.localeCompare(right.dueDateTime);
+      if (left.dueDateTime) return -1;
+      if (right.dueDateTime) return 1;
+      return left.title.localeCompare(right.title);
+    })
+    .slice(0, max_results);
+
+  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
 });
 
 server.tool("get_planner_tasks", "Get tasks from a Microsoft Planner plan", {
