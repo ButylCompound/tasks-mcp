@@ -19,6 +19,7 @@ const zStringArray = z.union([
   z.array(z.string()),
   z.string().transform((s) => JSON.parse(s)),
 ]);
+const zCalendarSource = z.enum(["user", "group"]);
 
 const recurrenceObjectSchema = z.object({
   pattern: z.object({
@@ -126,6 +127,34 @@ function buildPlannerTaskDetailsPath(taskId) {
   return `${buildPlannerTaskPath(taskId)}/details`;
 }
 
+function buildUserCalendarEventsPath(calendarId) {
+  return calendarId
+    ? `/me/calendars/${encodeURIComponent(calendarId)}/events`
+    : "/me/events";
+}
+
+function buildUserCalendarEventPath(calendarId, eventId) {
+  return `${buildUserCalendarEventsPath(calendarId)}/${encodeURIComponent(eventId)}`;
+}
+
+function buildUserCalendarViewPath(calendarId) {
+  return calendarId
+    ? `/me/calendars/${encodeURIComponent(calendarId)}/calendarView`
+    : "/me/calendarView";
+}
+
+function buildGroupCalendarEventsPath(groupId) {
+  return `/groups/${encodeURIComponent(groupId)}/events`;
+}
+
+function buildGroupCalendarEventPath(groupId, eventId) {
+  return `${buildGroupCalendarEventsPath(groupId)}/${encodeURIComponent(eventId)}`;
+}
+
+function buildGroupCalendarViewPath(groupId) {
+  return `/groups/${encodeURIComponent(groupId)}/calendarView`;
+}
+
 function toDateOnly(dateTime) {
   return dateTime?.substring(0, 10) || null;
 }
@@ -161,6 +190,7 @@ async function graphRequest(method, pathOrUrl, body, account, extraHeaders = {})
 }
 
 const graphGet  = (path, account)       => graphRequest("GET",    path, undefined, account);
+const graphGetWithHeaders = (path, account, headers) => graphRequest("GET", path, undefined, account, headers);
 const graphPost = (path, body, account) => graphRequest("POST",   path, body,      account);
 const graphPatch= (path, body, account) => graphRequest("PATCH",  path, body,      account);
 const graphDel  = (path, account)       => graphRequest("DELETE", path, undefined, account);
@@ -172,6 +202,17 @@ async function graphGetAllPages(pathOrUrl, account) {
   let nextPage = pathOrUrl;
   while (nextPage) {
     const resp = await graphGet(nextPage, account);
+    items.push(...(resp.value || []));
+    nextPage = resp["@odata.nextLink"] || null;
+  }
+  return items;
+}
+
+async function graphGetAllPagesWithHeaders(pathOrUrl, account, headers) {
+  const items = [];
+  let nextPage = pathOrUrl;
+  while (nextPage) {
+    const resp = await graphGetWithHeaders(nextPage, account, headers);
     items.push(...(resp.value || []));
     nextPage = resp["@odata.nextLink"] || null;
   }
@@ -198,6 +239,32 @@ function buildTaskPayload({ title, status, due_date, start_date, importance, bod
 
   if (categories !== undefined) payload.categories = categories;
   if (recurrence !== undefined) payload.recurrence = recurrence;
+
+  return payload;
+}
+
+function buildAttendeesFromEmails(attendees) {
+  const emails = normalizeStringArray(attendees, "attendees");
+  return emails.map((email) => ({
+    type: "required",
+    emailAddress: { address: email },
+  }));
+}
+
+function buildEventPayload({ subject, body, start_date_time, end_date_time, time_zone, is_all_day, location, attendees }) {
+  const payload = {};
+  const timeZone = time_zone || "UTC";
+
+  if (subject !== undefined) payload.subject = subject;
+  if (body !== undefined) payload.body = { contentType: "text", content: body };
+  if (start_date_time !== undefined) payload.start = { dateTime: start_date_time, timeZone };
+  if (end_date_time !== undefined) payload.end = { dateTime: end_date_time, timeZone };
+  if (is_all_day !== undefined) payload.isAllDay = is_all_day;
+  if (location !== undefined) payload.location = { displayName: location };
+
+  if (attendees !== undefined) {
+    payload.attendees = attendees.length > 0 ? buildAttendeesFromEmails(attendees) : [];
+  }
 
   return payload;
 }
@@ -292,6 +359,51 @@ function formatTask(task) {
   };
 }
 
+function formatCalendar(calendar) {
+  return {
+    id: calendar.id,
+    name: calendar.name ?? calendar.displayName ?? null,
+    isDefault: calendar.isDefaultCalendar ?? null,
+    canEdit: calendar.canEdit ?? null,
+    canShare: calendar.canShare ?? null,
+    canViewPrivateItems: calendar.canViewPrivateItems ?? null,
+  };
+}
+
+function formatGroupCalendar(group) {
+  return {
+    id: group.id,
+    name: group.displayName ?? null,
+    mail: group.mail ?? null,
+    groupTypes: group.groupTypes ?? [],
+    resourceProvisioningOptions: group.resourceProvisioningOptions ?? [],
+  };
+}
+
+function formatEvent(event) {
+  return {
+    id: event.id,
+    subject: event.subject ?? null,
+    organizer: event.organizer?.emailAddress?.name
+      || event.organizer?.emailAddress?.address
+      || null,
+    start: event.start?.dateTime ?? null,
+    end: event.end?.dateTime ?? null,
+    timeZone: event.start?.timeZone ?? event.end?.timeZone ?? null,
+    isAllDay: event.isAllDay ?? false,
+    location: event.location?.displayName ?? null,
+    attendees: (event.attendees || []).map((attendee) => ({
+      name: attendee.emailAddress?.name ?? null,
+      email: attendee.emailAddress?.address ?? null,
+      type: attendee.type ?? null,
+      status: attendee.status?.response ?? null,
+    })),
+    webLink: event.webLink ?? null,
+    createdDateTime: event.createdDateTime ?? null,
+    lastModifiedDateTime: event.lastModifiedDateTime ?? null,
+  };
+}
+
 function formatPlannerPlan(plan) {
   return {
     id: plan.id,
@@ -365,6 +477,20 @@ function formatPlannerTask(task) {
       .map(([category]) => category)
       .sort((left, right) => left.localeCompare(right)),
     etag: task["@odata.etag"] ?? null,
+  };
+}
+
+function formatDirectoryUser(user) {
+  const displayName = typeof user.displayName === "string" && user.displayName.trim()
+    ? user.displayName.trim()
+    : [user.givenName, user.surname]
+      .filter((part) => typeof part === "string" && part.trim())
+      .join(" ")
+      .trim();
+
+  return {
+    id: user.id,
+    name: displayName || user.mail || user.userPrincipalName || user.id,
   };
 }
 
@@ -457,6 +583,39 @@ function buildRecurrence({ pattern, range }) {
   return { pattern: p, range: r };
 }
 
+function parseIsoDateTimeOrThrow(value, fieldName) {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) {
+    throw new Error(`${fieldName} must be a valid ISO 8601 datetime.`);
+  }
+  return date;
+}
+
+function resolveCalendarViewRange(start_date_time, end_date_time) {
+  const now = new Date();
+  const earliest = new Date(now);
+  earliest.setMonth(now.getMonth() - 1);
+
+  let start = start_date_time
+    ? parseIsoDateTimeOrThrow(start_date_time, "start_date_time")
+    : earliest;
+
+  if (start < earliest) start = earliest;
+
+  const defaultEnd = new Date(now);
+  defaultEnd.setMonth(now.getMonth() + 3);
+
+  const end = end_date_time
+    ? parseIsoDateTimeOrThrow(end_date_time, "end_date_time")
+    : defaultEnd;
+
+  if (end <= start) {
+    throw new Error("end_date_time must be later than start_date_time.");
+  }
+
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 // ── Server ────────────────────────────────────────────────────────────────────
 
 const server = new McpServer({ name: "todo-mcp", version: "1.0.0" });
@@ -507,6 +666,169 @@ server.tool("delete_account", "Delete a stored Microsoft To Do account", {
   return { content: [{ type: "text", text: JSON.stringify(deleteStoredAccount(account), null, 2) }] };
 });
 
+// ── Calendars ──────────────────────────────────────────────────────────────
+
+server.tool("list_calendars", "List Outlook calendars for the signed-in user", {
+  ...optionalAccountArg,
+}, async ({ account }) => {
+  const calendars = await graphGetAllPages("/me/calendars?$select=id,name,isDefaultCalendar,canEdit,canShare,canViewPrivateItems&$top=200", account);
+  return { content: [{ type: "text", text: JSON.stringify(calendars.map(formatCalendar), null, 2) }] };
+});
+
+server.tool("list_group_calendars", "List Outlook calendars from accessible Microsoft 365 groups", {
+  ...optionalAccountArg,
+}, async ({ account }) => {
+  const groups = await graphGetAllPages("/me/memberOf/microsoft.graph.group?$select=id,displayName,mail,groupTypes,resourceProvisioningOptions&$top=999", account);
+  const unifiedGroups = groups.filter((group) => Array.isArray(group.groupTypes) && group.groupTypes.includes("Unified"));
+  const result = unifiedGroups
+    .map(formatGroupCalendar)
+    .sort((left, right) => (left.name || "").localeCompare(right.name || ""));
+  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+});
+
+server.tool("list_calendar_events", "List Outlook calendar events (filters out anything older than one month). Defaults to last month through the next 3 months.", {
+  ...optionalAccountArg,
+  source: zCalendarSource.optional().default("user"),
+  calendar_id: z.string().optional().describe("User calendar ID. Defaults to the primary calendar."),
+  group_id: z.string().optional().describe("Required when source is 'group'."),
+  start_date_time: z.string().optional().describe("ISO 8601 datetime, e.g. 2026-04-16T09:00:00Z"),
+  end_date_time: z.string().optional().describe("ISO 8601 datetime, e.g. 2026-04-20T17:00:00Z"),
+  time_zone: z.string().optional().describe("Optional Outlook time zone. If omitted, the mailbox default time zone is used."),
+  top: z.number().int().positive().optional().default(200),
+}, async ({ account, source, calendar_id, group_id, start_date_time, end_date_time, time_zone, top }) => {
+  if (source === "group" && !group_id) {
+    throw new Error("group_id is required when source is 'group'.");
+  }
+
+  const range = resolveCalendarViewRange(start_date_time, end_date_time);
+  const query = new URLSearchParams({
+    startDateTime: range.start,
+    endDateTime: range.end,
+    "$top": String(top),
+    "$orderby": "start/dateTime",
+    "$select": "id,subject,organizer,start,end,isAllDay,location,attendees,webLink,createdDateTime,lastModifiedDateTime",
+  });
+
+  const path = source === "group"
+    ? `${buildGroupCalendarViewPath(group_id)}?${query}`
+    : `${buildUserCalendarViewPath(calendar_id)}?${query}`;
+
+  const headers = time_zone ? { Prefer: `outlook.timezone="${time_zone}"` } : null;
+  const events = headers
+    ? await graphGetAllPagesWithHeaders(path, account, headers)
+    : await graphGetAllPages(path, account);
+  const formatted = events
+    .map(formatEvent)
+    .sort((left, right) => (left.start || "").localeCompare(right.start || ""));
+
+  return { content: [{ type: "text", text: JSON.stringify(formatted, null, 2) }] };
+});
+
+server.tool("create_calendar_event", "Create an Outlook calendar event", {
+  ...optionalAccountArg,
+  source: zCalendarSource.optional().default("user"),
+  calendar_id: z.string().optional().describe("User calendar ID. Defaults to the primary calendar."),
+  group_id: z.string().optional().describe("Required when source is 'group'."),
+  subject: z.string(),
+  start_date_time: z.string().describe("ISO 8601 datetime, e.g. 2026-04-16T09:00:00Z"),
+  end_date_time: z.string().describe("ISO 8601 datetime, e.g. 2026-04-20T17:00:00Z"),
+  time_zone: z.string().optional().describe("IANA time zone, e.g. 'UTC' or 'Europe/Warsaw'"),
+  is_all_day: zBool.optional(),
+  location: z.string().optional(),
+  body: z.string().optional().describe("Plain text body"),
+  attendees: zStringArray.optional().describe("Attendee email addresses"),
+}, async ({ account, source, calendar_id, group_id, subject, start_date_time, end_date_time, time_zone, is_all_day, location, body, attendees }) => {
+  if (source === "group" && !group_id) {
+    throw new Error("group_id is required when source is 'group'.");
+  }
+
+  const payload = buildEventPayload({
+    subject,
+    start_date_time,
+    end_date_time,
+    time_zone,
+    is_all_day,
+    location,
+    body,
+    attendees,
+  });
+
+  const path = source === "group"
+    ? buildGroupCalendarEventsPath(group_id)
+    : buildUserCalendarEventsPath(calendar_id);
+
+  const created = await graphPost(path, payload, account);
+  return { content: [{ type: "text", text: JSON.stringify(formatEvent(created), null, 2) }] };
+});
+
+server.tool("update_calendar_event", "Update an Outlook calendar event", {
+  ...optionalAccountArg,
+  source: zCalendarSource.optional().default("user"),
+  calendar_id: z.string().optional().describe("User calendar ID. Defaults to the primary calendar."),
+  group_id: z.string().optional().describe("Required when source is 'group'."),
+  event_id: z.string(),
+  subject: z.string().optional(),
+  start_date_time: z.string().optional().describe("ISO 8601 datetime, e.g. 2026-04-16T09:00:00Z"),
+  end_date_time: z.string().optional().describe("ISO 8601 datetime, e.g. 2026-04-20T17:00:00Z"),
+  time_zone: z.string().optional().describe("IANA time zone, e.g. 'UTC' or 'Europe/Warsaw'"),
+  is_all_day: zBool.optional(),
+  location: z.string().optional(),
+  body: z.string().optional().describe("Plain text body"),
+  attendees: zStringArray.optional().describe("Attendee email addresses"),
+}, async ({ account, source, calendar_id, group_id, event_id, subject, start_date_time, end_date_time, time_zone, is_all_day, location, body, attendees }) => {
+  if (source === "group" && !group_id) {
+    throw new Error("group_id is required when source is 'group'.");
+  }
+
+  const path = source === "group"
+    ? buildGroupCalendarEventPath(group_id, event_id)
+    : buildUserCalendarEventPath(calendar_id, event_id);
+
+  let resolvedTimeZone = time_zone;
+  if (resolvedTimeZone === undefined && (start_date_time !== undefined || end_date_time !== undefined)) {
+    const existing = await graphGet(path, account);
+    resolvedTimeZone = existing?.start?.timeZone || existing?.end?.timeZone || "UTC";
+  }
+
+  const payload = buildEventPayload({
+    subject,
+    start_date_time,
+    end_date_time,
+    time_zone: resolvedTimeZone,
+    is_all_day,
+    location,
+    body,
+    attendees,
+  });
+
+  if (Object.keys(payload).length === 0) {
+    throw new Error("No fields provided to update_calendar_event.");
+  }
+
+  await graphPatch(path, payload, account);
+  const updated = await graphGet(path, account);
+  return { content: [{ type: "text", text: JSON.stringify(formatEvent(updated), null, 2) }] };
+});
+
+server.tool("delete_calendar_event", "Delete an Outlook calendar event", {
+  ...optionalAccountArg,
+  source: zCalendarSource.optional().default("user"),
+  calendar_id: z.string().optional().describe("User calendar ID. Defaults to the primary calendar."),
+  group_id: z.string().optional().describe("Required when source is 'group'."),
+  event_id: z.string(),
+}, async ({ account, source, calendar_id, group_id, event_id }) => {
+  if (source === "group" && !group_id) {
+    throw new Error("group_id is required when source is 'group'.");
+  }
+
+  const path = source === "group"
+    ? buildGroupCalendarEventPath(group_id, event_id)
+    : buildUserCalendarEventPath(calendar_id, event_id);
+
+  await graphDel(path, account);
+  return { content: [{ type: "text", text: "Calendar event deleted." }] };
+});
+
 // ── Task lists ───────────────────────────────────────────────────────────────
 
 server.tool("list_todo_lists", "List all Microsoft To Do task lists", {
@@ -521,14 +843,16 @@ server.tool("list_todo_lists", "List all Microsoft To Do task lists", {
 
 // ── Tasks ────────────────────────────────────────────────────────────────────
 
-server.tool("get_tasks", "Get tasks from a specific To Do list", {
+server.tool("get_tasks", "Get tasks from a specific To Do list. By default, completed tasks are omitted unless status is set to 'all' or 'completed'.", {
   ...optionalAccountArg,
   list_id: z.string(),
-  status:  z.enum(["all", "notStarted", "inProgress", "waitingOnOthers", "deferred", "completed"]).optional().default("all"),
+  status:  z.enum(["all", "pending", "notStarted", "inProgress", "waitingOnOthers", "deferred", "completed"]).optional().default("pending")
+    .describe("Defaults to 'pending' (completed tasks omitted). Use 'all' or 'completed' to include completed tasks."),
   top:     z.number().optional().default(50),
 }, async ({ account, list_id, status, top }) => {
   const query = new URLSearchParams({ "$top": String(top) });
-  if (status !== "all") query.set("$filter", `status eq '${status}'`);
+  if (status === "pending") query.set("$filter", `status ne 'completed'`);
+  else if (status !== "all") query.set("$filter", `status eq '${status}'`);
   const resp = await graphGet(`${buildTasksPath(list_id)}?${query}`, account);
   return { content: [{ type: "text", text: JSON.stringify((resp.value || []).map(formatTask), null, 2) }] };
 });
@@ -612,7 +936,7 @@ server.tool("complete_task", "Mark a task as completed", {
     status: "completed",
     completedDateTime: { dateTime: new Date().toISOString(), timeZone: "UTC" },
   }, account);
-  return { content: [{ type: "text", text: `Completed: "${resp.title}"` }] };
+  return { content: [{ type: "text", text: `Completed: "${resp.title}". Note: completed tasks are omitted by default in get_tasks unless status is set to 'all' or 'completed'.` }] };
 });
 
 server.tool("delete_task", "Delete a task from a To Do list", {
@@ -696,11 +1020,89 @@ server.tool("list_planner_buckets", "List buckets in a Microsoft Planner plan", 
   return { content: [{ type: "text", text: JSON.stringify(sortedBuckets, null, 2) }] };
 });
 
-server.tool("get_planner_tasks", "Get tasks from a Microsoft Planner plan", {
+server.tool("list_employee_ids", "List employee IDs with names for Planner assignment and lookup", {
+  ...optionalAccountArg,
+  search: z.string().optional().describe("Optional text filter applied to display name, given name, surname, mail, and UPN."),
+  max_results: z.number().int().positive().max(5000).optional().default(500),
+}, async ({ account, search, max_results }) => {
+  const users = await graphGetAllPages("/users?$select=id,displayName,givenName,surname,mail,userPrincipalName&$top=999", account);
+  const normalizedSearch = typeof search === "string" ? search.trim().toLocaleLowerCase() : "";
+
+  const filteredUsers = users
+    .filter((user) => {
+      if (!normalizedSearch) return true;
+      const lookupValues = [user.displayName, user.givenName, user.surname, user.mail, user.userPrincipalName]
+        .filter((value) => typeof value === "string" && value.trim());
+      return lookupValues.some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
+    })
+    .map(formatDirectoryUser)
+    .sort((left, right) => {
+      const nameComparison = left.name.localeCompare(right.name);
+      if (nameComparison !== 0) return nameComparison;
+      return left.id.localeCompare(right.id);
+    })
+    .slice(0, max_results);
+
+  return { content: [{ type: "text", text: JSON.stringify(filteredUsers, null, 2) }] };
+});
+
+server.tool("get_user_planner_tasks", "Get pending Planner tasks assigned to a specific user from plans visible to the signed-in user", {
+  ...optionalAccountArg,
+  user_id: z.string().describe("Microsoft Entra user ID."),
+  plan_id: z.string().optional().describe("Optional Planner plan ID. If the signed-in user cannot access this plan, no tasks are returned."),
+  max_results: z.number().int().positive().max(5000).optional().default(500),
+}, async ({ account, user_id, plan_id, max_results }) => {
+  const accessiblePlans = await graphGetAllPages(buildPlannerPlansPath(), account);
+  const selectedPlans = plan_id
+    ? accessiblePlans.filter((plan) => plan.id === plan_id)
+    : accessiblePlans;
+
+  if (selectedPlans.length === 0) {
+    return { content: [{ type: "text", text: JSON.stringify([], null, 2) }] };
+  }
+
+  const tasksByPlan = await Promise.all(selectedPlans.map(async (plan) => {
+    try {
+      return await graphGetAllPages(`${buildPlannerPlanTasksPath(plan.id)}?$top=100`, account);
+    } catch {
+      return [];
+    }
+  }));
+
+  const normalizedUserId = user_id.trim().toLocaleLowerCase();
+  const filtered = tasksByPlan
+    .flat()
+    .filter((task) => Number(task.percentComplete || 0) < 100)
+    .filter((task) => Object.keys(task.assignments || {}).some((assigneeId) => assigneeId.toLocaleLowerCase() === normalizedUserId));
+
+  const planTitles = new Map(selectedPlans.map((plan) => [plan.id, plan.title || null]));
+
+  const result = filtered
+    .map((task) => ({
+      ...formatPlannerTask(task),
+      planTitle: task.planId ? (planTitles.get(task.planId) ?? null) : null,
+    }))
+    .sort((left, right) => {
+      const leftPriority = Number.isFinite(left.priority) ? left.priority : 99;
+      const rightPriority = Number.isFinite(right.priority) ? right.priority : 99;
+      if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+
+      if (left.dueDateTime && right.dueDateTime) return left.dueDateTime.localeCompare(right.dueDateTime);
+      if (left.dueDateTime) return -1;
+      if (right.dueDateTime) return 1;
+      return left.title.localeCompare(right.title);
+    })
+    .slice(0, max_results);
+
+  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+});
+
+server.tool("get_planner_tasks", "Get tasks from a Microsoft Planner plan. By default, completed tasks are omitted unless status is set to 'all' or 'completed'.", {
   ...optionalAccountArg,
   plan_id: z.string(),
   bucket_id: z.string().optional().describe("Optional bucket ID to limit tasks to one bucket."),
-  status: z.enum(["all", "incomplete", "completed"]).optional().default("all"),
+  status: z.enum(["all", "incomplete", "completed"]).optional().default("incomplete")
+    .describe("Defaults to 'incomplete' (completed tasks omitted). Use 'all' or 'completed' to include completed tasks."),
   top: z.number().int().positive().optional().default(100),
 }, async ({ account, plan_id, bucket_id, status, top }) => {
   const query = new URLSearchParams({ "$top": String(top) });
@@ -843,7 +1245,7 @@ server.tool("complete_planner_task", "Mark a Microsoft Planner task as completed
   task_id: z.string(),
 }, async ({ account, task_id }) => {
   const updatedTask = await patchPlannerTask(task_id, { percentComplete: 100 }, account);
-  return { content: [{ type: "text", text: `Completed: "${updatedTask.title}"` }] };
+  return { content: [{ type: "text", text: `Completed: "${updatedTask.title}". Note: completed tasks are omitted by default in get_planner_tasks unless status is set to 'all' or 'completed'.` }] };
 });
 
 server.tool("delete_planner_task", "Delete a Microsoft Planner task", {

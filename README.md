@@ -1,6 +1,6 @@
 # todo-mcp
 
-An MCP (Model Context Protocol) server that gives AI assistants access to **Microsoft To Do** and **Microsoft Planner** via the Microsoft Graph API. Supports multiple accounts (personal and work), encrypted token storage, and common planning/task operations.
+An MCP (Model Context Protocol) server that gives AI assistants access to **Microsoft To Do**, **Microsoft Planner**, and **Outlook Calendars** via the Microsoft Graph API. Supports multiple accounts (personal and work), encrypted token storage, and common planning/task/calendar operations.
 
 ## Features
 
@@ -9,6 +9,8 @@ An MCP (Model Context Protocol) server that gives AI assistants access to **Micr
 - Get all pending tasks across every list in one call
 - List Planner plans, buckets, and tasks
 - Create, update, complete, and delete Planner tasks
+- List Outlook calendars and events (events older than one month are filtered out by default)
+- Create, update, and delete Outlook calendar events for user and group calendars
 - Manage Planner task details and checklist items
 - Multi-account support (e.g. separate `work` and `personal` aliases)
 - Refresh tokens stored encrypted with AES-256-GCM on disk
@@ -17,7 +19,7 @@ An MCP (Model Context Protocol) server that gives AI assistants access to **Micr
 ## Prerequisites
 
 - **Node.js** 18 or later
-- An **Azure app registration** with the Microsoft Graph `Tasks.Read`, `Tasks.ReadWrite`, `Group.Read.All`, and `offline_access` delegated permissions (see below)
+- An **Azure app registration** with the Microsoft Graph `Tasks.ReadWrite`, `Calendars.ReadWrite`, `Group.ReadWrite.All`, `User.ReadBasic.All`, and `offline_access` delegated permissions (see below)
 
 ## 1. Create an Azure App Registration
 
@@ -27,7 +29,7 @@ An MCP (Model Context Protocol) server that gives AI assistants access to **Micr
 4. No redirect URI needed — click **Register**
 5. Copy the **Application (client) ID** — you'll need it below
 6. Go to **API permissions** → **Add a permission** → **Microsoft Graph** → **Delegated**
-  - Add: `Tasks.Read`, `Tasks.ReadWrite`, `Group.Read.All`, `offline_access`
+  - Add: `Tasks.ReadWrite`, `Calendars.ReadWrite`, `Group.ReadWrite.All`, `User.ReadBasic.All`, `offline_access`
   - Click **Grant admin consent** (or users will be prompted on first sign-in)
 7. Go to **Authentication** → **Advanced settings** → enable **"Allow public client flows"** (required for device code)
 8. Go to **Manifest** → set `"requestedAccessTokenVersion": 2` in the `api` section → **Save**
@@ -100,7 +102,7 @@ For **work/school accounts**, pass your organization's tenant ID (a UUID), or `"
 | `TODO_MCP_TENANT_ID` | No | Default tenant ID (defaults to `"common"`) |
 | `TODO_MCP_DEFAULT_ACCOUNT` | No | Default account alias (defaults to `"default"`) |
 | `TODO_MCP_CONFIG_PATH` | No | Override path for the config file (defaults to `~/.todo-mcp-config.json`) |
-| `TODO_MCP_SCOPE` | No | OAuth scope override (defaults to `Tasks.Read Tasks.ReadWrite Group.Read.All offline_access`) |
+| `TODO_MCP_SCOPE` | No | OAuth scope override (defaults to `Tasks.ReadWrite Calendars.ReadWrite Group.ReadWrite.All User.ReadBasic.All offline_access`) |
 
 ## Available Tools
 
@@ -111,7 +113,7 @@ For **work/school accounts**, pass your organization's tenant ID (a UUID), or `"
 | `set_default_account` | Change which account is used when none is specified |
 | `delete_account` | Remove a stored account |
 | `list_todo_lists` | List all task lists for an account |
-| `get_tasks` | Get tasks from a specific list (filterable by status) |
+| `get_tasks` | Get tasks from a specific list (defaults to pending; completed omitted unless explicitly requested) |
 | `get_all_pending_tasks` | Get all non-completed tasks across every list |
 | `create_task` | Create a task with optional due date, importance, and body |
 | `update_task` | Update a task's title, due date, importance, or body |
@@ -119,7 +121,9 @@ For **work/school accounts**, pass your organization's tenant ID (a UUID), or `"
 | `delete_task` | Delete a task |
 | `list_planner_plans` | List Planner plans available to the user or a specific group |
 | `list_planner_buckets` | List buckets in a Planner plan |
-| `get_planner_tasks` | Get tasks in a Planner plan (optionally by bucket/status) |
+| `list_employee_ids` | List employee IDs with names for assignment lookups |
+| `get_user_planner_tasks` | Get pending tasks assigned to a specific user from plans visible to the signed-in user (optionally filtered by plan) |
+| `get_planner_tasks` | Get tasks in a Planner plan (defaults to incomplete; completed omitted unless explicitly requested) |
 | `get_all_pending_planner_tasks` | Get all not-completed Planner tasks assigned to the user |
 | `create_planner_task` | Create a Planner task with optional assignees/categories |
 | `update_planner_task` | Update Planner task fields, assignees, categories, progress |
@@ -130,6 +134,12 @@ For **work/school accounts**, pass your organization's tenant ID (a UUID), or `"
 | `add_planner_checklist_item` | Add a checklist item to a Planner task |
 | `update_planner_checklist_item` | Update a Planner checklist item |
 | `delete_planner_checklist_item` | Delete a Planner checklist item |
+| `list_calendars` | List Outlook calendars for the signed-in user |
+| `list_group_calendars` | List Outlook calendars from accessible Microsoft 365 groups |
+| `list_calendar_events` | List Outlook calendar events (filters out events older than one month) |
+| `create_calendar_event` | Create an Outlook calendar event |
+| `update_calendar_event` | Update an Outlook calendar event |
+| `delete_calendar_event` | Delete an Outlook calendar event |
 
 All data tools accept an optional `account` parameter to target a specific alias. If omitted, the default account is used.
 
