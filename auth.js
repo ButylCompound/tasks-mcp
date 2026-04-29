@@ -12,7 +12,7 @@ const DEFAULT_CLIENT_ID = process.env.TODO_MCP_CLIENT_ID?.trim() || "YOUR_CLIENT
 // or globally with the TODO_MCP_TENANT_ID env var.
 const DEFAULT_TENANT_ID = "common";
 
-const DEFAULT_SCOPE = "Tasks.Read Tasks.ReadWrite Group.Read.All User.ReadBasic.All offline_access";
+const DEFAULT_SCOPE = "Tasks.ReadWrite Calendars.ReadWrite Group.ReadWrite.All User.ReadBasic.All offline_access";
 const CONFIG_PATH = process.env.TODO_MCP_CONFIG_PATH?.trim() || path.join(os.homedir(), ".todo-mcp-config.json");
 
 const tokenCache = new Map();
